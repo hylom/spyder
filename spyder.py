@@ -224,21 +224,26 @@ class Spyder(object):
         p = self.parse(html, url)
         return p.get_imgs()
 
-    def remove_script(self, html):
-        """remove script tag from HTML"""
+    def regularize_html(self, html):
+        """remove or convert some illegal tags, texts, etc. for parse"""
+        # remove script tag
         rex = re.compile(r"<\s*script[^>]*?>.*?</script>", re.S)
         rex2 = re.compile(r"<\s*noscript[^>]*?>.*?</noscript>", re.S)
         tmp = rex.sub("", html)
-        return rex2.sub("", tmp)
+        html = rex2.sub("", tmp)
 
-        return rex.sub("", html)
+        # remove some invalid element
+        # example: <! -- this is comment. -->
+        rex = re.compile(r"<!\s.*?>", re.S)
+        html = rex.sub("", html)
+        return html
 
     def parse(self, html, url):
         """parsse from HTML"""
         if url == self._last_parsed_url and self._last_parser:
             p = self._last_parser
         else:
-            html_r = self.remove_script(html)
+            html_r = self.regularize_html(html)
             p = AnchorParser()
             p.parse(html_r, url)
             self._last_parsed_url = url
