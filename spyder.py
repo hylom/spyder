@@ -18,7 +18,7 @@ import os.path
 import re
 import sys
 import urlparse
-
+from string import Template
 
 class SpyderError(Exception):
     """Spyder's exception handler class."""
@@ -30,12 +30,12 @@ class SpyderError(Exception):
         return self.name + ":" + repr(self.value)
 
 
-class AnchorParser(HTMLParser.HTMLParser):
+class LinkParser(HTMLParser.HTMLParser):
     """Parse HTML and extract A tag's link url.
 
 usage:
     url = "http://hogehoge.net/foo/bar.html"
-    p = AnchorParser()
+    p = LinkParser()
     p.parse(html_string, url)
     anchors = p.get_anchors()
     imgs = p.get_imgs()
@@ -50,6 +50,7 @@ usage:
         """Parse html_string with url, and return anchors"""
         self._anchors = []
         self._imgs = []
+        self._links = []
         self._base_url_items = urlparse.urlparse(url)
         self.feed(html_string)
 
@@ -60,6 +61,10 @@ usage:
     def get_imgs(self):
         """return feed()'s result."""
         return self._imgs
+
+    def get_links(self):
+        """return feed()'s result."""
+        return self._links
 
     def handle_starttag(self, tag, attrs):
         """starttag handler."""
@@ -84,6 +89,11 @@ usage:
             for (attr, val) in attrs:
                 if attr == "src":
                     self._imgs.append(self._regularize_url(val))
+                    break
+        if tag == "link":
+            for (attr, val) in attrs:
+                if attr == "href":
+                    self._links.append(self._regularize_url(val))
                     break
 
     def _regularize_url(self, url):
@@ -117,6 +127,115 @@ usage:
 
         url = "".join(term)
         return url
+
+
+class AnchorParser(LinkParser):
+    """Parse HTML and extract A tag's link url.
+
+usage:
+    url = "http://hogehoge.net/foo/bar.html"
+    p = AnchorParser()
+    p.parse(html_string, url)
+    anchors = p.get_anchors()
+    imgs = p.get_imgs()
+"""
+    pass
+
+
+def regularize_url(parsed_baseurl, url):
+    """regularize given url.
+    usage:
+    parsed_baseurl = urlparse.urlparse(baseurl)
+    url = "http://hoge.net/foo/var/index.html;q?a=b#c"
+    re_url = regularized_url(parsed_baseurl, url)
+    """
+    # urlparse.urlparse("http://hoge.net/foo/var/index.html;q?a=b#c")
+    #
+    #       0       1           2                      3    4      5      
+    #  -> ('http', 'hoge.net', '/foo/var/index.html', 'q', 'a=b', 'c')
+    #
+    current_term = parsed_baseurl
+    current_dir = os.path.dirname(current_term[2])
+    current_last = os.path.basename(current_term[2])
+
+    result = urlparse.urlparse(url)
+    term = list(result)
+
+    if not term[0]:
+        term[0] = current_term[0] + "://"
+    else:
+        term[0] = term[0] + "://"
+    if not term[1]:
+        term[1] = current_term[1]
+    if term[2] and term[2][0] != "/":
+        term[2] = os.path.normpath(current_dir + "/" + term[2])
+    if term[3]:
+        term[3] = ";" + term[3]
+    if term[4]:
+        term[4] = "?" + term[4]
+    if term[5]:
+        term[5] = "#" + term[5]
+
+    url = "".join(term)
+    return url
+
+
+class CSSParser(object):
+    """Parse CSS file to extract urls from url() and src='' element.
+
+usage:
+    url = "http://hogehoge.net/foo/bar.css"
+    p = CSSParser()
+    p.parse(css_string, url)
+    refs = p.get_refs()
+"""
+    def __init__(self):
+        self._refs = []
+
+    def _exp_refactor(self, exps):
+        flag = False
+        while not flag:
+            for comp in exps:
+                s = exps[comp]
+                if s.find("${") != -1:
+                    t = Template(s)
+                    exps[comp] = t.safe_substitute(exps)
+                    break
+            else:
+                flag = True
+
+    def parse(self, html_string, url):
+        """Parse html_string with url"""
+        self._refs = []
+        self._parsed_baseurl = urlparse.urlparse(url)
+
+        exps = dict(unicode=r"""\\[0-9a-f]{1,6}[ \n\r\t\f]?""",
+                    w=r"""[ \t\r\n\f]*""",
+                    nl=r"""\n|\r\n|\r|\f""",
+                    nonascii=r"""[^\0-\177]""",
+                    escape=r"""${unicode}|\\[^\n\r\f0-9a-f]""",
+                    string1=r'''\"((:?[^\n\r\f\\"]|\\${nl}|${escape})*)\"''',
+                    string2=r"""\'((:?[^\n\r\f\\']|\\${nl}|${escape})*)\'""",
+                    string=r"""${string1}|${string2}""",
+                    uri=r"""url\(${w}${string1}${w}\)|url\(${w}${string2}${w}\)|url\(${w}((:?[!#$%&*-~]|${nonascii}|${escape})*)${w}\)""",
+                    )
+
+        self._exp_refactor(exps)
+        #print exps["uri"]
+        rex_uri = re.compile(exps["uri"])
+        for m in rex_uri.finditer(html_string, re.S|re.U):
+            uri = filter(None, m.groups())[0]
+            #print ">", filter(None, m.groups())[0]
+            self._refs.append(self._regularize_url(uri))
+
+    def _regularize_url(self, url):
+        return regularize_url(self._parsed_baseurl, url)
+        
+        
+    def get_refs(self):
+        """return result of parsing."""
+        return self._refs
+    
 
 
 class _DownloadQueue(object):
