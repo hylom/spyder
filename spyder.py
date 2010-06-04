@@ -204,10 +204,9 @@ usage:
             else:
                 flag = True
 
-    def parse(self, html_string, url):
+    def parse(self, html_string):
         """Parse html_string with url"""
         self._refs = []
-        self._parsed_baseurl = urlparse.urlparse(url)
 
         exps = dict(unicode=r"""\\[0-9a-f]{1,6}[ \n\r\t\f]?""",
                     w=r"""[ \t\r\n\f]*""",
@@ -225,8 +224,7 @@ usage:
         rex_uri = re.compile(exps["uri"])
         for m in rex_uri.finditer(html_string, re.S|re.U):
             uri = filter(None, m.groups())[0]
-            #print ">", filter(None, m.groups())[0]
-            self._refs.append(self._regularize_url(uri))
+            self._refs.append(uri)
 
     def _regularize_url(self, url):
         return regularize_url(self._parsed_baseurl, url)
